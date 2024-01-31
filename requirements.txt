@@ -2,4 +2,4 @@ requests
 # time
 # nostr
 pynostr
-gpt4all
+ollama

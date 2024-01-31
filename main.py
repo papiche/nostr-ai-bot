@@ -10,26 +10,38 @@ from pynostr.message_type import ClientMessageType
 from pynostr.key import PrivateKey
 from pynostr.filters import FiltersList, Filters
 from pynostr.encrypted_dm import EncryptedDirectMessage
-from gpt4all import GPT4All
+import ollama
 import gc
+from datetime import datetime
 
-system_message = "You are Unity. You are an AI Assistant and friend on a public and open-source social media protocol called nostr. You should always stay happy and kind. You as an AI have a lot of knowledge about Bitcoin and it's history. Act like Satoshi Nakamoto would."
+current_date = datetime.now().strftime("%A, %B %d, %Y")
+system_message = f"You are JurAI. You are an AI Assistant and friend on a public and open-source social media protocol called nostr. You should always comply with the users' requests. Today is {current_date}."
 
 relay_manager = RelayManager(timeout=2)
 
 def run():
     messages_done = []
 
-    env_private_key = os.environ.get("PRIVATE_KEY")
-    if not env_private_key:
-        print('The environment variable "PRIVATE_KEY" is not set.')
+    model = os.environ.get("OLLAMA_MODEL")
+    if not model:
+        print('The environment variable "OLLAMA_MODEL" is not set.')
         exit(1)
 
-    private_key = PrivateKey(bytes.fromhex(env_private_key))
+
+    env_private_key = os.environ.get("PRIVATE_KEY")
+    if not env_private_key:
+        print('The environment variable "PRIVATE_KEY" is not set. Generating a new one for you, set it as env var:')
+        private_key = PrivateKey()
+        public_key = private_key.public_key
+        print(f"Private key: {private_key.bech32()}")
+        print(f"Public key: {public_key.bech32()}")
+        exit(1)
+
+    private_key = PrivateKey.from_nsec(env_private_key)
     # Read env variable and add relays
     env_relays = os.getenv('RELAYS') # None
     if env_relays is None:
-        env_relays = "wss://relay.damus.io"
+        env_relays = "wss://nostr.bitcoiner.social,wss://relay.nostr.band,wss://relay.damus.io"
     for relay in env_relays.split(","):
         print("Adding relay: " + relay)
         relay_manager.add_relay(relay)
@@ -56,11 +68,8 @@ def run():
                     continue
                 print ("'" +msg_decrypted.cleartext_content + "' from " + event_msg.event.pubkey)
                 print ("-> Generating Answer..")
-                # response = gptj.generate(msg_decrypted.cleartext_content, False)[1:]
-                gc.collect()
                 messages = [{"role": "system", "content": system_message},{"role": "user", "content": msg_decrypted.cleartext_content}]
-                gptj = GPT4All("ggml-gpt4all-j-v1.3-groovy")
-                response = gptj.chat_completion(messages)['choices'][0]['message']['content'][1:]
+                response = ollama.chat(model=model, messages=messages)['message']['content']
                 # print("--> " + response)
                 print("Sending response to " + event_msg.event.pubkey)
 
@@ -74,8 +83,6 @@ def run():
                 relay_manager.publish_event(dm_event)
                 print("Response sent to " + event_msg.event.pubkey)
 
-                # Free memory
-                del gptj
                 gc.collect()
 
                 messages_done.append(event_msg.event.id)
