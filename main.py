@@ -10,6 +10,7 @@ from pynostr.message_type import ClientMessageType
 from pynostr.key import PrivateKey
 from pynostr.filters import FiltersList, Filters
 from pynostr.encrypted_dm import EncryptedDirectMessage
+from pynostr.utils import get_timestamp
 import ollama
 import gc
 from datetime import datetime
@@ -57,10 +58,14 @@ def run():
     print("Pubkey: " + private_key.public_key.bech32())
     print("Pubkey (hex): " + private_key.public_key.hex())
 
+    start_timestamp = get_timestamp()
+
     while(True):
 
         filters = FiltersList([
-            Filters(pubkey_refs=[private_key.public_key.hex()], kinds=[EventKind.ENCRYPTED_DIRECT_MESSAGE, EventKind.TEXT_NOTE])
+            Filters(pubkey_refs=[private_key.public_key.hex()],
+                    kinds=[EventKind.ENCRYPTED_DIRECT_MESSAGE, EventKind.TEXT_NOTE],
+                    since=start_timestamp)
         ])
         subscription_id = uuid.uuid1().hex
         relay_manager.add_subscription_on_all_relays(subscription_id, filters)
@@ -70,9 +75,10 @@ def run():
             print("Notice: " + notice_msg.content)
         while relay_manager.message_pool.has_events():
             event_msg = relay_manager.message_pool.get_event()
-            # is message too old
-            if(time.time() - 60 > event_msg.event.created_at):
-                continue
+            # is message too old?
+            # we don't need this anymore, we filter events and then remember processed events
+            #if(time.time() - 60 > event_msg.event.created_at):
+            #    continue
             # has it already been processed?
             if(event_msg.event.id in messages_done):
                 continue
@@ -96,7 +102,8 @@ def run():
                 relay_manager.publish_event(dm_event)
                 print("Response sent to " + event_msg.event.pubkey)
             elif event_msg.event.kind == EventKind.TEXT_NOTE:
-                content = re.sub(r"(nostr:)?(nprofile|npub)[1-9ac-hj-np-tv-z]+[\s]*", '', event_msg.event.content)
+                print(f"Received public note: {event_msg.event.content}")
+                content = re.sub(r'\b(nostr:)?(nprofile|npub)[0-9a-z]+[\s]*', '', event_msg.event.content)
                 print(f"Received public note: {content}")
                 if recipient_pubkey != private_key.public_key.bech32():
                     print("Responding...")
